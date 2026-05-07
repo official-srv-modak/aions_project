@@ -128,11 +128,6 @@ AIONS is designed to fail fast. This prevents your AI Agent from attempting to u
 
 **AIONS** (pronounced *IONS*) is an open-standard, text-based data format designed specifically for AI Large Language Models (LLMs). It allows developers to decouple tool definitions from core logic, making AI "Actions" as portable as JSON but as powerful as native Python.
 
-## 📦 Installation
-```bash
-pip install aions-llm
-```
-
 ## 🛠 Extending the Framework
 The AIONS class provides several utility methods for different workflows:
 
@@ -145,5 +140,10 @@ get_langchain_tools(...): The high-level factory for instant LangChain mounting.
 ``` 
 ## 🤝 Contributing
 AIONS is an open standard. Feel free to fork the framework and add support for other LLM frameworks.
+
+## 📦 Installation
+```bash
+pip install aions-llm
+```
 
 Developed by Sourav Modak
