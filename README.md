@@ -1,139 +1,152 @@
 # AIONS: Actions and Interface Object Notation
 
-**AIONS** (pronounced *IONS*) is an open-standard, text-based data format designed specifically for AI Large Language Models (LLMs). It allows developers to decouple tool definitions from core logic, making AI "Actions" as portable as JSON but as powerful as native Python.
+**AIONS** (pronounced *IONS*) is an open-standard, text-based data format engineered specifically for Large Language Model (LLM) agent architectures. By decoupling tool definitions from application logic, AIONS provides a portable, JSON-like notation while retaining the full execution capabilities of native Python.
 
-## 📦 Installation
+## Installation
 ```bash
 pip install aions-llm
 ```
 
-## 🛠 Why AIONS?
-Traditional AI tool registration often involves bloating your Python files with massive strings for descriptions and repetitive boilerplate. AIONS solves this by:
-*   **Decoupling:** Move your LLM prompts (descriptions) and tool mappings into external `.aion` files.
-*   **Dynamic Evaluation:** Supports native Python lambdas and complex logic directly within the notation.
-*   **Strict Validation:** Enforces a rigid property schema to prevent "ghost tools" or broken agent execution.
-*   **Zero-Map Architecture:** No need to maintain manual dictionaries; if it’s in the `.aion` file, it’s in your Agent.
+## Architecture and Rationale
+
+Traditional AI tool registration often pollutes backend Python code with extensive prompt strings, interface definitions, and repetitive boilerplate. AIONS modernizes this workflow through the following architectural principles:
+
+*   **Logic Decoupling:** Isolates LLM prompts (descriptions) and tool mappings into external `.aion` configuration files.
+*   **Dynamic Evaluation:** Safely parses and binds native Python lambdas and complex conditional logic directly from the notation into memory.
+*   **Strict Validation:** Enforces a rigid property schema during the parsing phase to prevent runtime failures, "ghost tools," or broken agent execution.
+*   **Zero-Map Architecture:** Eliminates the need to maintain manual dictionaries in the application layer. If a tool is defined in the `.aion` file, the framework autonomously mounts it to your Agent.
 
 ---
 
-## 📜 The Laws of AIONS
-To maintain the "Open Standard" integrity, every `.aion` file must adhere to the following rules:
+## Specification and Constraints
+
+To maintain standard integrity, every `.aion` file must adhere strictly to the following validation rules:
 
 ### 1. The Array Constraint
-An AIONS definition must always be an array, enclosed in square brackets `[ ]`. Even if you are defining a single tool, it must reside within an array.
+An AIONS definition must always manifest as a root-level array, enclosed in square brackets `[ ]`. Single-tool definitions must still reside within this array.
 
-### 2. The Arrow Operator
-Properties are assigned using the "Action-Link" operator: `-->`. 
-*   **Valid:** `name --> "MyTool"`
-*   **Invalid:** `name: "MyTool"` or `name = "MyTool"`
+### 2. The Assignment Operator
+Properties are assigned exclusively using the "Action-Link" operator: `-->`. 
+*   **Valid:** `name --> "AuthModule"`
+*   **Invalid:** `name: "AuthModule"` or `name = "AuthModule"`
 
-### 3. Property Isolation
-AIONS strictly enforces identified properties. If the parser encounters a top-level key that is not in the **Approved Registry**, it will throw an `AIONPropertyError`.
+### 3. Strict Property Isolation
+AIONS enforces a strict, closed-property ecosystem. If the parser encounters a top-level key not present in the **Approved Registry**, it will raise an `AIONPropertyError`.
 *   **Approved Registry:** `name`, `function`, `description`, `args_schema`, `link`.
 
-### 4. The `function` XOR `link` Rule
-An AION element must possess at least **one** executable/referential parameter. A valid element can have a `function`, a `link` (for public documentation to feed the AI), or both. If neither is present, the parser will fail.
+### 4. The Function/Link Dependency Rule
+Every valid AION element must possess at least one executable or referential parameter. An element must declare a `function`, a `link` (to feed public documentation to the AI), or both. If neither property is present, the parser will fail. 
 
-### 5. The Smart Function Block
-The `function` property requires a raw string representing the executable (lambda or function name) followed by an "Interface Block" `{ }` describing the inputs and outputs.
-*   Inputs must follow the `arg-N` pattern.
-*   Outputs must follow the `return-N` pattern.
+### 5. The Interface Block
+When utilizing the `function` property, the value must be a raw string representing the executable (e.g., a lambda or function name), immediately followed by an Interface Block `{ }` that maps the inputs and outputs.
+*   Inputs must follow the sequential `arg-N` pattern.
+*   Outputs must follow the sequential `return-N` pattern.
 
 ---
 
-## 📂 Syntax & Example
+## Syntax Variations
 
-### 💡 Syntax Template:
+The following examples demonstrate the flexibility of the Function/Link Dependency Rule. An element can act as a direct execution tool, a documentation reference, or a hybrid of both.
+
+### Variation A: Function-Only Execution
+Used when the agent needs to directly execute backend logic without requiring external documentation.
 ```text
 [
   {
-    name --> "Unique_Tool_Name",
-    function --> "executable_python_logic" --> {
-                                                    arg-1 --> "Input description",
-                                                    return-1 --> "Output description"
-                                               },
-    link --> "[https://docs.yoursite.com/tool](https://docs.yoursite.com/tool)",
-    args_schema --> "PydanticClassName",
-    description --> "Detailed prompt for the AI agent"
+    name --> "SendOutput",
+    function --> "lambda user: send_output(user)" --> {
+        arg-1 --> "string (user identifier)",
+        return-1 --> "dict (execution status)"
+    },
+    args_schema --> "SendOutputSchema",
+    description --> "Executes the output transmission to the specified user."
   }
 ]
 ```
 
-### 💡 Real-World Example
+### Variation B: Link-Only Reference
+Used when the agent needs access to external API documentation or a web resource, but no direct backend Python execution is required. *Note: The framework automatically binds a fallback function that returns this URL to the LLM.*
 ```text
 [
   {
-   name --> "send_output",
-   function --> "lambda user: send_output(user)" --> {
-                                                        arg-1 --> "string",
-                                                        return-1 --> "dict"
-                                                     },
-   link --> "[https://api.balkandate.com/docs/send_output](https://api.balkandate.com/docs/send_output)",
-   args_schema --> "SendOutputSchema",
-   description --> "This is the prompt that describes the function."
+    name --> "FetchBalkanDateDocs",
+    link --> "[https://api.balkandate.com/docs](https://api.balkandate.com/docs)",
+    description --> "Retrieves the public documentation for the BalkanDate API to understand endpoint structures."
+  }
+]
+```
+
+### Variation C: Hybrid Execution & Reference
+Used for complex tools where the agent can execute the function, but is also provided a link to the relevant documentation to understand the broader context of the action.
+```text
+[
+  {
+    name --> "AdminSignup",
+    function --> "lambda params: admin_signup(*params.split('|'))" --> {
+        arg-1 --> "string (pipe-separated user data)",
+        return-1 --> "dict (new user profile)"
+    },
+    link --> "[https://api.balkandate.com/docs/admin_signup](https://api.balkandate.com/docs/admin_signup)",
+    description --> "Creates a new admin account. Refer to the provided documentation link for strict password policies."
   }
 ]
 ```
 
 ---
 
-## 🚀 Getting Started
+## Implementation Guide
 
-### 1. Project Structure
-Keep your tools organized. We recommend an `aion_tools/` directory for modularity.
+### 1. Recommended Directory Structure
+To ensure clean modularity, isolate your notation files in a dedicated directory.
 ```text
-my_project/
-├── aion_tools/       # .aion files
+project_root/
+├── aion_tools/         # Directory for AIONS notation files
 │   ├── auth.aion
-│   └── user.aion
-├── schemas.py        # Pydantic Models
-├── api_functions.py  # Backend Logic
-└── main.py           # Entry point
+│   └── users.aion
+├── schemas.py          # Pydantic validation models
+├── api_functions.py    # Core application logic
+└── agent_factory.py    # LangChain entry point
 ```
 
-### 2. Integration with LangChain
-AIONS is built to be a first-class citizen in the LangChain ecosystem.
-
+### 2. LangChain Integration
+AIONS is engineered to natively compile into LangChain Tool objects. By passing `globals()` into the execution context, the parser autonomously binds the strings in your `.aion` files to the functions and schemas residing in your application's memory.
 ```python
 from aions import AIONS
 import api_functions
-from schemas import SendLikeInput
+from schemas import SendOutputSchema
 
-# 1. Load your tools with context
-# 'globals()' allows AIONS to find your imported functions and schemas in memory
-tools = AIONS.get_langchain_tools(
+# Initialize the AIONS parser with the local execution context
+tool_registry = AIONS.get_langchain_tools(
     source_path="aion_tools/", 
     context=globals()
 )
 
-# 2. Pass them directly to your Agent
-# agent = initialize_agent(tools, llm, ...)
+# The resulting list can be injected directly into a LangChain Agent
+# agent = initialize_agent(tools=tool_registry, llm=model, ...)
 ```
 
 ---
 
-## ⚖️ Error Handling
+## Exception Reference
 
-AIONS is designed to fail fast. This prevents your AI Agent from attempting to use a tool that was configured incorrectly.
+The AIONS parser is designed to fail fast. Strict validation ensures the LLM is never provided with malformed tool schemas.
 
-| Error | Cause |
+| Exception Class | Trigger Condition |
 | :--- | :--- |
-| `AIONPropertyError` | Using an unauthorized key (e.g., using `desc` instead of `description`). |
-| `AIONParseError` | Syntax errors, missing brackets, missing a function/link, or function strings that don't exist in your Python code. |
+| `AIONPropertyError` | Raised when an unauthorized key is declared (e.g., using `desc` instead of the approved `description` property). |
+| `AIONParseError` | Raised upon detecting syntax violations, missing array brackets, failure to meet the Function/Link Dependency Rule, or if a declared function/schema does not exist in the provided execution context. |
 
 ---
 
-## 🛠 Extending the Framework
+## API Reference
 
-The `AIONS` class provides several utility methods for different workflows:
-*   `load_dir(path, context)`: Automatically stitches together all `.aion` files in a folder.
-*   `loads(text, context)`: Parses a raw string representing AION notation directly from memory.
-*   `dumps(list_of_tools)`: Converts existing Python tool dictionaries into the AIONS standard text format.
-*   `get_langchain_tools(...)`: The high-level factory for instant LangChain mounting.
+The `AIONS` class exposes several static methods to accommodate various system architectures:
+
+*   `AIONS.get_langchain_tools(source_path, context)`: High-level factory method that parses files and compiles them directly into LangChain `Tool` instances.
+*   `AIONS.load_dir(dirpath, context)`: Scans a target directory and compiles all contained `.aion` files into a unified Python dictionary list.
+*   `AIONS.loads(aion_text, context)`: Parses a raw AIONS string directly from memory, bypassing the file system.
+*   `AIONS.dumps(tools_list)`: Serializes an existing list of Python tool dictionaries back into the standard AIONS text format.
 
 ---
-
-## 🤝 Contributing
-AIONS is an open standard. Feel free to fork the framework and add support for other LLM frameworks!
 
 **Developed by Sourav Modak**
