@@ -66,14 +66,27 @@ The `function` property is split into two parts:
 #### 💡 Syntax Template:
 ```text
 {
- name --> "Unique_Tool_Name",
- function --> "executable_python_logic" --> {
-      arg-1 --> "Input description",
-      return-1 --> "Output description"
- },
- args_schema --> "PydanticClassName",
- description --> "Detailed prompt for the AI agent"
+    name --> "Unique_Tool_Name",
+    function --> "executable_python_logic" --> {
+                                                    arg-1 --> "Input description",
+                                                    return-1 --> "Output description"
+                                               },
+    args_schema --> "PydanticClassName",
+    description --> "Detailed prompt for the AI agent"
 }
+```
+
+#### Example
+```text
+{
+   name --> "send_output",
+   function --> "lambda user: send_output(user)" --> {
+                                                        arg-1 --> "string",
+                                                        return-1 --> "dict"
+                                                     },
+   args_schema --> "some_schema",
+   description --> "This is the prompt that describes the function."
+  },
 ```
 
 ## 🚀 Getting Started
