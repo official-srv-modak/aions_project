@@ -69,9 +69,9 @@ Used when the agent needs access to external API documentation or a web resource
 ```text
 [
   {
-    name --> "FetchBalkanDateDocs",
-    link --> "[https://api.balkandate.com/docs](https://api.balkandate.com/docs)",
-    description --> "Retrieves the public documentation for the BalkanDate API to understand endpoint structures."
+    name --> "FetchAbcDocs",
+    link --> "[https://api.Abc.com/docs](https://api.Abc.com/docs)",
+    description --> "Retrieves the public documentation for the Abc API to understand endpoint structures."
   }
 ]
 ```
@@ -86,7 +86,7 @@ Used for complex tools where the agent can execute the function, but is also pro
         arg-1 --> "string (pipe-separated user data)",
         return-1 --> "dict (new user profile)"
     },
-    link --> "[https://api.balkandate.com/docs/admin_signup](https://api.balkandate.com/docs/admin_signup)",
+    link --> "[https://api.Abc.com/docs/admin_signup](https://api.Abc.com/docs/admin_signup)",
     description --> "Creates a new admin account. Refer to the provided documentation link for strict password policies."
   }
 ]
