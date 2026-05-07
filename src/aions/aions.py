@@ -14,8 +14,8 @@ class AIONParseError(Exception):
 
 
 class AIONS:
-    # Expanded properties to include LangChain's args_schema
-    ALLOWED_PROPERTIES = {"name", "function", "description", "args_schema"}
+    # Expanded properties to include LangChain's args_schema and the new link property
+    ALLOWED_PROPERTIES = {"name", "function", "description", "args_schema", "link"}
 
     @classmethod
     def loads(cls, aion_text: str, context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
@@ -47,14 +47,18 @@ class AIONS:
             if desc_match:
                 tool_data['description'] = desc_match.group(1)
 
-            # Extract Args Schema (New Property)
+            # Extract Link (New Property)
+            link_match = re.search(r'link\s*-->\s*"([^"]+)"', block)
+            if link_match:
+                tool_data['link'] = link_match.group(1)
+
+            # Extract Args Schema
             schema_match = re.search(r'args_schema\s*-->\s*"([^"]+)"', block)
             if schema_match:
                 schema_str = schema_match.group(1)
                 tool_data['args_schema_str'] = schema_str
                 if context:
                     try:
-                        # Evaluate the string to get the actual Pydantic class
                         tool_data['args_schema'] = eval(schema_str, context)
                     except Exception as e:
                         raise AIONParseError(
@@ -83,6 +87,11 @@ class AIONS:
 
                 tool_data['function'] = func_data
 
+            # Validation: Must have at least a function OR a link
+            if 'function' not in tool_data and 'link' not in tool_data:
+                raise AIONParseError(
+                    f"AION element '{tool_data.get('name', 'Unknown')}' must contain at least 'function' or 'link'.")
+
             tools.append(tool_data)
 
         return tools
@@ -108,18 +117,18 @@ class AIONS:
             aion_str = "  {\n"
             aion_str += f'   name --> "{tool.get("name", "")}",\n'
 
-            func = tool.get("function", {})
-            aion_str += f'   function --> "{func.get("raw_string", "")}" --> {{\n'
+            if 'function' in tool:
+                func = tool.get("function", {})
+                aion_str += f'   function --> "{func.get("raw_string", "")}" --> {{\n'
+                for arg_k, arg_v in func.get("args", {}).items():
+                    aion_str += f'        {arg_k} --> "{arg_v}",\n'
+                for ret_k, ret_v in func.get("returns", {}).items():
+                    aion_str += f'        {ret_k} --> "{ret_v}",\n'
+                aion_str = aion_str.rstrip(",\n") + "\n   },\n"
 
-            for arg_k, arg_v in func.get("args", {}).items():
-                aion_str += f'        {arg_k} --> "{arg_v}",\n'
+            if 'link' in tool:
+                aion_str += f'   link --> "{tool["link"]}",\n'
 
-            for ret_k, ret_v in func.get("returns", {}).items():
-                aion_str += f'        {ret_k} --> "{ret_v}",\n'
-
-            aion_str = aion_str.rstrip(",\n") + "\n   },\n"
-
-            # Dump args_schema if it exists
             if 'args_schema_str' in tool:
                 aion_str += f'   args_schema --> "{tool["args_schema_str"]}",\n'
 
@@ -151,15 +160,27 @@ class AIONS:
         langchain_tools = []
         for tool_config in parsed_data:
             tool_name = tool_config["name"]
-            executable_func = tool_config["function"]["executable"]
 
-            # Now extracting schema dynamically from the parsed AION data
+            # Dynamically determine the execution strategy based on the presence of func/link
+            if "function" in tool_config:
+                executable_func = tool_config["function"]["executable"]
+            else:
+                # If only a link is provided, create a dummy function that returns the URL for the LLM
+                link_url = tool_config.get("link", "")
+                executable_func = lambda *args, url=link_url,
+                                         **kwargs: f"Action unavailable. Please refer to documentation: {url}"
+
+            # Append the link to the description if it exists so the AI knows about it
+            description = tool_config["description"]
+            if "link" in tool_config:
+                description += f"\nDocumentation Link: {tool_config['link']}"
+
             args_schema = tool_config.get("args_schema")
 
             tool = Tool(
                 name=tool_name,
                 func=executable_func,
-                description=tool_config["description"],
+                description=description,
                 args_schema=args_schema
             )
             langchain_tools.append(tool)
