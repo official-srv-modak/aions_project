@@ -35,7 +35,7 @@ The `function` property is a "Smart Property." It requires a raw string represen
 
 ---
 
-## 📂 Syntax Example
+## 📂 Syntax & Example
 ### 📝 AIONS Syntax Guide
 
 The AIONS (Actions and Interface Object Notation) syntax is designed to be strictly structural yet human-readable. It follows a specific set of rules to ensure LLM compatibility and execution safety.
@@ -76,7 +76,7 @@ The `function` property is split into two parts:
 }
 ```
 
-#### Example
+#### 💡Example
 ```text
 {
    name --> "send_output",
