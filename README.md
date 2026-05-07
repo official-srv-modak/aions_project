@@ -156,6 +156,10 @@ AIONS is an open standard. Feel free to fork the framework and add support for o
 
 ## 📦 Installation
 ```bash
+pip3 install aions-llm
+
+# or
+
 pip install aions-llm
 ```
 
