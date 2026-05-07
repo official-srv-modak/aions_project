@@ -124,6 +124,15 @@ AIONS is designed to fail fast. This prevents your AI Agent from attempting to u
 | `AIONPropertyError` | Using an unauthorized key (e.g., using `desc` instead of `description`). |
 | `AIONParseError` | Syntax errors, missing brackets, or function strings that don't exist in your Python code. |
 
+# AIONS: Actions and Interface Object Notation
+
+**AIONS** (pronounced *IONS*) is an open-standard, text-based data format designed specifically for AI Large Language Models (LLMs). It allows developers to decouple tool definitions from core logic, making AI "Actions" as portable as JSON but as powerful as native Python.
+
+## 📦 Installation
+```bash
+pip install aions-llm
+```
+
 ## 🛠 Extending the Framework
 The AIONS class provides several utility methods for different workflows:
 
