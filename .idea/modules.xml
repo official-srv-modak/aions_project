@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/aions.iml" filepath="$PROJECT_DIR$/.idea/aions.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/aions-llm.iml" filepath="$PROJECT_DIR$/.idea/aions-llm.iml" />
     </modules>
   </component>
 </project>
