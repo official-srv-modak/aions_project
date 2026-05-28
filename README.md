@@ -2,6 +2,9 @@
 
 **AIONS** (pronounced *IONS*) is an open-standard, text-based data format engineered specifically for Large Language Model (LLM) agent architectures. By decoupling tool definitions from application logic, AIONS provides a portable, JSON-like notation while retaining the full execution capabilities of native Python.
 
+## Cannot replace humans
+The AIONS by structure is a part of Language Models and helps in LLM to simulate the AI. It is very easy to consider that as an AI equivalent (also considered by many as a real AI), but it is not and shall not be used as a human replacement. It will be disastrous. 
+
 ## Installation
 ```bash
 pip install aions-llm
