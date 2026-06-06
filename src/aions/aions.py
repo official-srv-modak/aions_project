@@ -2,6 +2,11 @@ import os
 import re
 from typing import Any, Dict, List
 
+try:
+    from pydantic import create_model, Field, BaseModel
+except ImportError:
+    BaseModel = None
+
 
 class AIONPropertyError(Exception):
     """Raised when an unidentified property is found in the .aion file."""
@@ -14,7 +19,6 @@ class AIONParseError(Exception):
 
 
 class AIONS:
-    # Expanded properties to include LangChain's args_schema and the new link property
     ALLOWED_PROPERTIES = {"name", "function", "description", "args_schema", "link"}
 
     @classmethod
@@ -34,35 +38,53 @@ class AIONS:
 
             for prop in set(found_properties):
                 if prop not in cls.ALLOWED_PROPERTIES and not prop.startswith("arg-") and not prop.startswith(
-                        "return-"):
-                    raise AIONPropertyError(f"Error: Property [{prop}] cannot be identified.")
+                        "return-") and not prop in block:
+                    pass  # Relaxed to allow schema field names
 
-            # Extract Name
+            # Extract Basic Properties
             name_match = re.search(r'name\s*-->\s*"([^"]+)"', block)
-            if name_match:
-                tool_data['name'] = name_match.group(1)
+            if name_match: tool_data['name'] = name_match.group(1)
 
-            # Extract Description
             desc_match = re.search(r'description\s*-->\s*"([^"]+)"', block)
-            if desc_match:
-                tool_data['description'] = desc_match.group(1)
+            if desc_match: tool_data['description'] = desc_match.group(1)
 
-            # Extract Link (New Property)
             link_match = re.search(r'link\s*-->\s*"([^"]+)"', block)
-            if link_match:
-                tool_data['link'] = link_match.group(1)
+            if link_match: tool_data['link'] = link_match.group(1)
 
-            # Extract Args Schema
-            schema_match = re.search(r'args_schema\s*-->\s*"([^"]+)"', block)
-            if schema_match:
-                schema_str = schema_match.group(1)
-                tool_data['args_schema_str'] = schema_str
-                if context:
-                    try:
-                        tool_data['args_schema'] = eval(schema_str, context)
-                    except Exception as e:
-                        raise AIONParseError(
-                            f"Could not parse schema '{schema_str}'. Ensure it is in context. Error: {e}")
+            # --- NEW: Extract Native Args Schema Block ---
+            schema_block_match = re.search(r'args_schema\s*-->\s*\{([^}]+)\}', block)
+            if schema_block_match:
+                inner_schema = schema_block_match.group(1)
+                schema_items = re.findall(r'([a-zA-Z0-9_-]+)\s*-->\s*"([^"]*)"', inner_schema)
+                tool_data['args_schema_raw'] = schema_items
+
+                if BaseModel:
+                    fields = {}
+                    for field_name, field_def in schema_items:
+                        parts = [p.strip() for p in field_def.split('|')]
+
+                        # Map type
+                        type_str = parts[0].lower() if parts else "str"
+                        type_map = {'str': str, 'int': int, 'float': float, 'bool': bool, 'list': list, 'dict': dict}
+                        field_type = type_map.get(type_str, str)
+
+                        # Parse defaults and description
+                        default_val = ...  # Ellipsis means 'required' in Pydantic
+                        description = ""
+
+                        if len(parts) == 2:
+                            description = parts[1]
+                        elif len(parts) >= 3:
+                            if parts[1].startswith("default="):
+                                raw_val = parts[1].split("=", 1)[1].strip("'\" ")
+                                default_val = None if raw_val.lower() == "none" else raw_val
+                            description = parts[2]
+
+                        fields[field_name] = (field_type, Field(default=default_val, description=description))
+
+                    # Dynamically generate the Pydantic Model
+                    model_name = f"{tool_data.get('name', 'Dynamic')}Input"
+                    tool_data['args_schema'] = create_model(model_name, **fields)
 
             # Extract Function Block
             func_match = re.search(r'function\s*-->\s*"([^"]+)"\s*-->\s*\{([^}]+)\}', block)
@@ -75,8 +97,7 @@ class AIONS:
                     try:
                         func_data["executable"] = eval(func_str, context)
                     except Exception as e:
-                        raise AIONParseError(
-                            f"Could not parse function '{func_str}'. Ensure all dependencies are in context. Error: {e}")
+                        raise AIONParseError(f"Could not parse function '{func_str}'. Error: {e}")
 
                 inner_items = re.findall(r'(arg-\d+|return-\d+)\s*-->\s*"([^"]*)"', inner_block)
                 for key, val in inner_items:
@@ -86,11 +107,6 @@ class AIONS:
                         func_data["returns"][key] = val
 
                 tool_data['function'] = func_data
-
-            # Validation: Must have at least a function OR a link
-            if 'function' not in tool_data and 'link' not in tool_data:
-                raise AIONParseError(
-                    f"AION element '{tool_data.get('name', 'Unknown')}' must contain at least 'function' or 'link'.")
 
             tools.append(tool_data)
 
@@ -106,8 +122,7 @@ class AIONS:
         all_tools = []
         for filename in os.listdir(dirpath):
             if filename.endswith(".aion"):
-                filepath = os.path.join(dirpath, filename)
-                all_tools.extend(cls.load(filepath, context))
+                all_tools.extend(cls.load(os.path.join(dirpath, filename), context))
         return all_tools
 
     @classmethod
@@ -120,69 +135,58 @@ class AIONS:
             if 'function' in tool:
                 func = tool.get("function", {})
                 aion_str += f'   function --> "{func.get("raw_string", "")}" --> {{\n'
-                for arg_k, arg_v in func.get("args", {}).items():
-                    aion_str += f'        {arg_k} --> "{arg_v}",\n'
-                for ret_k, ret_v in func.get("returns", {}).items():
-                    aion_str += f'        {ret_k} --> "{ret_v}",\n'
+                for k, v in func.get("args", {}).items(): aion_str += f'        {k} --> "{v}",\n'
+                for k, v in func.get("returns", {}).items(): aion_str += f'        {k} --> "{v}",\n'
                 aion_str = aion_str.rstrip(",\n") + "\n   },\n"
 
-            if 'link' in tool:
-                aion_str += f'   link --> "{tool["link"]}",\n'
+            if 'args_schema_raw' in tool:
+                aion_str += '   args_schema --> {\n'
+                for k, v in tool['args_schema_raw']: aion_str += f'        {k} --> "{v}",\n'
+                aion_str = aion_str.rstrip(",\n") + "\n   },\n"
 
-            if 'args_schema_str' in tool:
-                aion_str += f'   args_schema --> "{tool["args_schema_str"]}",\n'
-
-            aion_str += f'   description --> "{tool.get("description", "")}"\n'
-            aion_str += "  }"
+            if 'link' in tool: aion_str += f'   link --> "{tool["link"]}",\n'
+            aion_str += f'   description --> "{tool.get("description", "")}"\n  }}'
             aion_strings.append(aion_str)
 
         return "[\n" + ",\n".join(aion_strings) + "\n]"
 
     @classmethod
-    def dump(cls, tools: List[Dict[str, Any]], filepath: str):
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(cls.dumps(tools))
-
-    @classmethod
     def get_langchain_tools(cls, source_path: str, context: Dict[str, Any]) -> list:
         try:
-            from langchain.agents import Tool
+            from langchain.tools import Tool, StructuredTool
         except ImportError:
-            raise ImportError("LangChain is not installed. Run 'pip install langchain'")
+            raise ImportError("LangChain is not installed.")
 
-        if os.path.isdir(source_path):
-            parsed_data = cls.load_dir(source_path, context)
-        elif os.path.isfile(source_path):
-            parsed_data = cls.load(source_path, context)
-        else:
-            raise FileNotFoundError(f"Source '{source_path}' is neither a valid file nor directory.")
-
+        parsed_data = cls.load_dir(source_path, context) if os.path.isdir(source_path) else cls.load(source_path,
+                                                                                                     context)
         langchain_tools = []
+
         for tool_config in parsed_data:
             tool_name = tool_config["name"]
+            executable_func = tool_config.get("function", {}).get("executable",
+                                                                  lambda *args, **kwargs: "No function provided.")
 
-            # Dynamically determine the execution strategy based on the presence of func/link
-            if "function" in tool_config:
-                executable_func = tool_config["function"]["executable"]
-            else:
-                # If only a link is provided, create a dummy function that returns the URL for the LLM
-                link_url = tool_config.get("link", "")
-                executable_func = lambda *args, url=link_url,
-                                         **kwargs: f"Action unavailable. Please refer to documentation: {url}"
-
-            # Append the link to the description if it exists so the AI knows about it
-            description = tool_config["description"]
+            description = tool_config.get("description", "")
             if "link" in tool_config:
-                description += f"\nDocumentation Link: {tool_config['link']}"
+                description += f"\nDocumentation: {tool_config['link']}"
 
             args_schema = tool_config.get("args_schema")
 
-            tool = Tool(
-                name=tool_name,
-                func=executable_func,
-                description=description,
-                args_schema=args_schema
-            )
+            # NEW: Use StructuredTool if schema exists to properly map kwargs to the function
+            if args_schema:
+                tool = StructuredTool.from_function(
+                    func=executable_func,
+                    name=tool_name,
+                    description=description,
+                    args_schema=args_schema
+                )
+            else:
+                tool = Tool(
+                    name=tool_name,
+                    func=executable_func,
+                    description=description
+                )
+
             langchain_tools.append(tool)
 
         return langchain_tools
