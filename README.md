@@ -61,7 +61,14 @@ Used when the agent needs to directly execute backend logic without requiring ex
         arg-1 --> "string (user identifier)",
         return-1 --> "dict (execution status)"
     },
-    args_schema --> "SendOutputSchema",
+    args_schema --> {
+        email --> "str | Email for new admin user",
+        password --> "str | Password for new admin user",
+        firstName --> "str | First name of admin user",
+        phone --> "str | default='' | Phone number (optional)",
+        gender --> "str | Gender (MALE/FEMALE)",
+        birthday --> "str | Birthday in ISO format"
+   }},
     description --> "Executes the output transmission to the specified user."
   }
 ]
