@@ -19,8 +19,6 @@ class AIONParseError(Exception):
 
 
 class AIONS:
-    ALLOWED_PROPERTIES = {"name", "function", "description", "args_schema", "link"}
-
     @classmethod
     def loads(cls, aion_text: str, context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         aion_text = aion_text.strip()
@@ -28,30 +26,54 @@ class AIONS:
         if not (aion_text.startswith("[") and aion_text.endswith("]")):
             raise AIONParseError("AION definition must be an array enclosed in [ ]")
 
-        tools = []
-        block_pattern = re.compile(r'\{([^{}]*\{[^{}]*\}[^{}]*|[^{}]*)\}')
-        blocks = block_pattern.findall(aion_text)
+        # --- THE FIX: Robust Brace-Counting Algorithm ---
+        # This replaces the brittle regex and safely extracts top-level AION objects
+        # even if they contain deeply nested arguments or schemas.
+        blocks = []
+        current_block = ""
+        brace_level = 0
+        in_block = False
 
+        # Strip the outer array brackets to just iterate over the objects
+        inner_text = aion_text[1:-1].strip()
+
+        for char in inner_text:
+            if char == '{':
+                if brace_level == 0:
+                    in_block = True
+                brace_level += 1
+
+            if in_block:
+                current_block += char
+
+            if char == '}':
+                brace_level -= 1
+                if brace_level == 0 and in_block:
+                    blocks.append(current_block)
+                    current_block = ""
+                    in_block = False
+
+        tools = []
         for block in blocks:
             tool_data = {}
-            found_properties = re.findall(r'([a-zA-Z0-9_-]+)\s*-->', block)
 
-            for prop in set(found_properties):
-                if prop not in cls.ALLOWED_PROPERTIES and not prop.startswith("arg-") and not prop.startswith(
-                        "return-") and not prop in block:
-                    pass  # Relaxed to allow schema field names
-
-            # Extract Basic Properties
+            # Extract Name (Fails fast with a clear error if missing, rather than a KeyError later)
             name_match = re.search(r'name\s*-->\s*"([^"]+)"', block)
-            if name_match: tool_data['name'] = name_match.group(1)
+            if not name_match:
+                raise AIONParseError(f"Found a malformed AION block missing the 'name' property:\n{block[:50]}...")
+            tool_data['name'] = name_match.group(1)
 
+            # Extract Description
             desc_match = re.search(r'description\s*-->\s*"([^"]+)"', block)
-            if desc_match: tool_data['description'] = desc_match.group(1)
+            if desc_match:
+                tool_data['description'] = desc_match.group(1)
 
+            # Extract Link
             link_match = re.search(r'link\s*-->\s*"([^"]+)"', block)
-            if link_match: tool_data['link'] = link_match.group(1)
+            if link_match:
+                tool_data['link'] = link_match.group(1)
 
-            # --- NEW: Extract Native Args Schema Block ---
+            # Extract Native Args Schema Block
             schema_block_match = re.search(r'args_schema\s*-->\s*\{([^}]+)\}', block)
             if schema_block_match:
                 inner_schema = schema_block_match.group(1)
@@ -93,11 +115,12 @@ class AIONS:
                 inner_block = func_match.group(2)
                 func_data = {"raw_string": func_str, "args": {}, "returns": {}}
 
-                if context:
+                if context is not None:
                     try:
                         func_data["executable"] = eval(func_str, context)
                     except Exception as e:
-                        raise AIONParseError(f"Could not parse function '{func_str}'. Error: {e}")
+                        raise AIONParseError(
+                            f"Could not parse function '{func_str}'. Ensure dependencies are passed in context. Error: {e}")
 
                 inner_items = re.findall(r'(arg-\d+|return-\d+)\s*-->\s*"([^"]*)"', inner_block)
                 for key, val in inner_items:
@@ -107,6 +130,10 @@ class AIONS:
                         func_data["returns"][key] = val
 
                 tool_data['function'] = func_data
+
+            # Validation: Must have at least a function OR a link
+            if 'function' not in tool_data and 'link' not in tool_data:
+                raise AIONParseError(f"AION element '{tool_data['name']}' must contain at least 'function' or 'link'.")
 
             tools.append(tool_data)
 
@@ -122,7 +149,8 @@ class AIONS:
         all_tools = []
         for filename in os.listdir(dirpath):
             if filename.endswith(".aion"):
-                all_tools.extend(cls.load(os.path.join(dirpath, filename), context))
+                filepath = os.path.join(dirpath, filename)
+                all_tools.extend(cls.load(filepath, context))
         return all_tools
 
     @classmethod
@@ -135,44 +163,65 @@ class AIONS:
             if 'function' in tool:
                 func = tool.get("function", {})
                 aion_str += f'   function --> "{func.get("raw_string", "")}" --> {{\n'
-                for k, v in func.get("args", {}).items(): aion_str += f'        {k} --> "{v}",\n'
-                for k, v in func.get("returns", {}).items(): aion_str += f'        {k} --> "{v}",\n'
+                for arg_k, arg_v in func.get("args", {}).items():
+                    aion_str += f'        {arg_k} --> "{arg_v}",\n'
+                for ret_k, ret_v in func.get("returns", {}).items():
+                    aion_str += f'        {ret_k} --> "{ret_v}",\n'
                 aion_str = aion_str.rstrip(",\n") + "\n   },\n"
 
             if 'args_schema_raw' in tool:
                 aion_str += '   args_schema --> {\n'
-                for k, v in tool['args_schema_raw']: aion_str += f'        {k} --> "{v}",\n'
+                for k, v in tool['args_schema_raw']:
+                    aion_str += f'        {k} --> "{v}",\n'
                 aion_str = aion_str.rstrip(",\n") + "\n   },\n"
 
-            if 'link' in tool: aion_str += f'   link --> "{tool["link"]}",\n'
-            aion_str += f'   description --> "{tool.get("description", "")}"\n  }}'
+            if 'link' in tool:
+                aion_str += f'   link --> "{tool["link"]}",\n'
+
+            aion_str += f'   description --> "{tool.get("description", "")}"\n'
+            aion_str += "  }"
             aion_strings.append(aion_str)
 
         return "[\n" + ",\n".join(aion_strings) + "\n]"
+
+    @classmethod
+    def dump(cls, tools: List[Dict[str, Any]], filepath: str):
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(cls.dumps(tools))
 
     @classmethod
     def get_langchain_tools(cls, source_path: str, context: Dict[str, Any]) -> list:
         try:
             from langchain.tools import Tool, StructuredTool
         except ImportError:
-            raise ImportError("LangChain is not installed.")
+            raise ImportError("LangChain is not installed. Run 'pip install langchain'")
 
-        parsed_data = cls.load_dir(source_path, context) if os.path.isdir(source_path) else cls.load(source_path,
-                                                                                                     context)
+        if os.path.isdir(source_path):
+            parsed_data = cls.load_dir(source_path, context)
+        elif os.path.isfile(source_path):
+            parsed_data = cls.load(source_path, context)
+        else:
+            raise FileNotFoundError(f"Source '{source_path}' is neither a valid file nor directory.")
+
         langchain_tools = []
-
         for tool_config in parsed_data:
             tool_name = tool_config["name"]
-            executable_func = tool_config.get("function", {}).get("executable",
-                                                                  lambda *args, **kwargs: "No function provided.")
 
-            description = tool_config.get("description", "")
+            # Dynamically determine the execution strategy
+            if "function" in tool_config:
+                executable_func = tool_config["function"]["executable"]
+            else:
+                link_url = tool_config.get("link", "")
+                executable_func = lambda *args, url=link_url, **kwargs: f"Action unavailable. Please refer to documentation: {url}"
+
+            # Append the link to the description if it exists
+            description = tool_config["description"]
             if "link" in tool_config:
-                description += f"\nDocumentation: {tool_config['link']}"
+                description += f"\nDocumentation Link: {tool_config['link']}"
 
             args_schema = tool_config.get("args_schema")
 
-            # NEW: Use StructuredTool if schema exists to properly map kwargs to the function
+            # Use StructuredTool to handle the dynamic Pydantic models cleanly
             if args_schema:
                 tool = StructuredTool.from_function(
                     func=executable_func,
