@@ -16,9 +16,6 @@ class AIONS:
         if not (aion_text.startswith("[") and aion_text.endswith("]")):
             raise AIONParseError("AION definition must be an array enclosed in [ ]")
 
-        # --- THE FIX: Robust Brace-Counting Algorithm ---
-        # This replaces the brittle regex and safely extracts top-level AION objects
-        # even if they contain deeply nested arguments or schemas.
         blocks = []
         current_block = ""
         brace_level = 0
@@ -180,7 +177,7 @@ class AIONS:
             aion_str += "  }"
             aion_strings.append(aion_str)
 
-        # 3. Join with commas! This naturally puts the comma after the system_prompt
+        # 3. Join with commas. This naturally puts the comma after the system_prompt
         # and between every subsequent tool block.
         return "[\n" + ",\n".join(aion_strings) + "\n]"
 

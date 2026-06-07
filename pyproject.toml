@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aions-llm"
-version = "1.0.12"
+version = "1.0.13"
 authors = [
   { name="Sourav Modak" },
 ]
-description = "Actions and Interface Object Notation: An open standard for LLM tools."
+description = "Actions and Interface Object Notation: An open standard for LLM tools. AIONS (pronounced IONS) is an open-standard, text-based data format engineered specifically for Large Language Model (LLM) agent architectures. By decoupling tool definitions from application logic, AIONS provides a portable, JSON-like notation while retaining the full execution capabilities of native Python."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [

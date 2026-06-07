@@ -156,7 +156,7 @@ The `AIONS` class exposes several static methods to accommodate various system a
 *   `AIONS.load_dir(dirpath, context)`: Scans a target directory and compiles all contained `.aion` files into a unified Python dictionary list.
 *   `AIONS.loads(aion_text, context)`: Parses a raw AIONS string directly from memory, bypassing the file system.
 *   `AIONS.dumps(tools_list)`: Serializes an existing list of Python tool dictionaries back into the standard AIONS text format.
-
+*   `AIONS.get_system_prompt(source_path)`: Scans a file or directory for the singular system_prompt declaration and returns it as a string.
 ---
 
 **Developed by Sourav Modak**
