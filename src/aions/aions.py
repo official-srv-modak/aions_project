@@ -1,22 +1,12 @@
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from aion_parse_error import AIONParseError
 
 try:
     from pydantic import create_model, Field, BaseModel
 except ImportError:
     BaseModel = None
-
-
-class AIONPropertyError(Exception):
-    """Raised when an unidentified property is found in the .aion file."""
-    pass
-
-
-class AIONParseError(Exception):
-    """Raised when the syntax of the .aion file is invalid."""
-    pass
-
 
 class AIONS:
     @classmethod
@@ -154,8 +144,16 @@ class AIONS:
         return all_tools
 
     @classmethod
-    def dumps(cls, tools: List[Dict[str, Any]]) -> str:
+    def dumps(cls, tools: List[Dict[str, Any]], system_prompt: Optional[str] = None) -> str:
+        """Serializes tools (and an optional system prompt) into an AION formatted string."""
         aion_strings = []
+
+        # 1. Add the System Prompt as the very first array element
+        if system_prompt:
+            sp_str = f'  system_prompt --> """\n{system_prompt}\n  """'
+            aion_strings.append(sp_str)
+
+        # 2. Add all the tool objects
         for tool in tools:
             aion_str = "  {\n"
             aion_str += f'   name --> "{tool.get("name", "")}",\n'
@@ -182,12 +180,15 @@ class AIONS:
             aion_str += "  }"
             aion_strings.append(aion_str)
 
+        # 3. Join with commas! This naturally puts the comma after the system_prompt
+        # and between every subsequent tool block.
         return "[\n" + ",\n".join(aion_strings) + "\n]"
 
     @classmethod
-    def dump(cls, tools: List[Dict[str, Any]], filepath: str):
+    def dump(cls, tools: List[Dict[str, Any]], filepath: str, system_prompt: Optional[str] = None):
+        """Writes tools and an optional system prompt to an AION file."""
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(cls.dumps(tools))
+            f.write(cls.dumps(tools, system_prompt=system_prompt))
 
     @classmethod
     def get_langchain_tools(cls, source_path: str, context: Dict[str, Any]) -> list:
@@ -239,3 +240,51 @@ class AIONS:
             langchain_tools.append(tool)
 
         return langchain_tools
+
+    # ====== ENFORCING THE 1-PROMPT RULE ======
+    @classmethod
+    def get_system_prompt(cls, source_path: str) -> Optional[str]:
+        """Extracts the singular global system_prompt from an .aion file or directory.
+           Strictly enforces a maximum of ONE system prompt."""
+
+        def extract_prompt(content: str) -> Optional[str]:
+            # Find all instances
+            matches_triple = re.findall(r'system_prompt\s*-->\s*"""(.*?)"""', content, re.DOTALL)
+            matches_single = re.findall(r'system_prompt\s*-->\s*"([^"]+)"', content)
+
+            total_prompts = len(matches_triple) + len(matches_single)
+
+            # The Enforcement Rule
+            if total_prompts > 1:
+                raise AIONParseError(
+                    "Multiple system prompts found. An AION file can contain at most ONE system_prompt.")
+
+            if matches_triple:
+                return matches_triple[0].strip()
+            if matches_single:
+                return matches_single[0].strip()
+
+            return None
+
+        # Directory logic
+        if os.path.isdir(source_path):
+            all_prompts = []
+            for filename in os.listdir(source_path):
+                if filename.endswith(".aion"):
+                    with open(os.path.join(source_path, filename), 'r', encoding='utf-8') as f:
+                        prompt = extract_prompt(f.read())
+                        if prompt:
+                            all_prompts.append(prompt)
+
+            if len(all_prompts) > 1:
+                raise AIONParseError(
+                    "Multiple system prompts found across directory. Only one global system_prompt is allowed.")
+            return all_prompts[0] if all_prompts else None
+
+        # Single file logic
+        elif os.path.isfile(source_path):
+            with open(source_path, 'r', encoding='utf-8') as f:
+                return extract_prompt(f.read())
+
+        else:
+            raise FileNotFoundError(f"Source '{source_path}' is neither a valid file nor directory.")
