@@ -1,12 +1,18 @@
 import os
 import re
 from typing import Any, Dict, List, Optional
-from aion_parse_error import AIONParseError
-
 try:
     from pydantic import create_model, Field, BaseModel
 except ImportError:
     BaseModel = None
+
+class AIONParseError(Exception):
+    """Raised when the syntax of the .aion file is invalid."""
+    pass
+
+class AIONPropertyError(Exception):
+    """Raised when an unidentified property is found in the .aion file."""
+    pass
 
 class AIONS:
     @classmethod
@@ -21,7 +27,6 @@ class AIONS:
         brace_level = 0
         in_block = False
 
-        # Strip the outer array brackets to just iterate over the objects
         inner_text = aion_text[1:-1].strip()
 
         for char in inner_text:
@@ -44,23 +49,19 @@ class AIONS:
         for block in blocks:
             tool_data = {}
 
-            # Extract Name (Fails fast with a clear error if missing, rather than a KeyError later)
             name_match = re.search(r'name\s*-->\s*"([^"]+)"', block)
             if not name_match:
                 raise AIONParseError(f"Found a malformed AION block missing the 'name' property:\n{block[:50]}...")
             tool_data['name'] = name_match.group(1)
 
-            # Extract Description
             desc_match = re.search(r'description\s*-->\s*"([^"]+)"', block)
             if desc_match:
                 tool_data['description'] = desc_match.group(1)
 
-            # Extract Link
             link_match = re.search(r'link\s*-->\s*"([^"]+)"', block)
             if link_match:
                 tool_data['link'] = link_match.group(1)
 
-            # Extract Native Args Schema Block
             schema_block_match = re.search(r'args_schema\s*-->\s*\{([^}]+)\}', block)
             if schema_block_match:
                 inner_schema = schema_block_match.group(1)
@@ -72,13 +73,11 @@ class AIONS:
                     for field_name, field_def in schema_items:
                         parts = [p.strip() for p in field_def.split('|')]
 
-                        # Map type
                         type_str = parts[0].lower() if parts else "str"
                         type_map = {'str': str, 'int': int, 'float': float, 'bool': bool, 'list': list, 'dict': dict}
                         field_type = type_map.get(type_str, str)
 
-                        # Parse defaults and description
-                        default_val = ...  # Ellipsis means 'required' in Pydantic
+                        default_val = ...
                         description = ""
 
                         if len(parts) == 2:
@@ -91,11 +90,9 @@ class AIONS:
 
                         fields[field_name] = (field_type, Field(default=default_val, description=description))
 
-                    # Dynamically generate the Pydantic Model
                     model_name = f"{tool_data.get('name', 'Dynamic')}Input"
                     tool_data['args_schema'] = create_model(model_name, **fields)
 
-            # Extract Function Block
             func_match = re.search(r'function\s*-->\s*"([^"]+)"\s*-->\s*\{([^}]+)\}', block)
             if func_match:
                 func_str = func_match.group(1)
@@ -118,7 +115,6 @@ class AIONS:
 
                 tool_data['function'] = func_data
 
-            # Validation: Must have at least a function OR a link
             if 'function' not in tool_data and 'link' not in tool_data:
                 raise AIONParseError(f"AION element '{tool_data['name']}' must contain at least 'function' or 'link'.")
 
@@ -145,12 +141,10 @@ class AIONS:
         """Serializes tools (and an optional system prompt) into an AION formatted string."""
         aion_strings = []
 
-        # 1. Add the System Prompt as the very first array element
         if system_prompt:
             sp_str = f'  system_prompt --> """\n{system_prompt}\n  """'
             aion_strings.append(sp_str)
 
-        # 2. Add all the tool objects
         for tool in tools:
             aion_str = "  {\n"
             aion_str += f'   name --> "{tool.get("name", "")}",\n'
@@ -177,8 +171,6 @@ class AIONS:
             aion_str += "  }"
             aion_strings.append(aion_str)
 
-        # 3. Join with commas. This naturally puts the comma after the system_prompt
-        # and between every subsequent tool block.
         return "[\n" + ",\n".join(aion_strings) + "\n]"
 
     @classmethod
@@ -205,21 +197,18 @@ class AIONS:
         for tool_config in parsed_data:
             tool_name = tool_config["name"]
 
-            # Dynamically determine the execution strategy
             if "function" in tool_config:
                 executable_func = tool_config["function"]["executable"]
             else:
                 link_url = tool_config.get("link", "")
                 executable_func = lambda *args, url=link_url, **kwargs: f"Action unavailable. Please refer to documentation: {url}"
 
-            # Append the link to the description if it exists
             description = tool_config["description"]
             if "link" in tool_config:
                 description += f"\nDocumentation Link: {tool_config['link']}"
 
             args_schema = tool_config.get("args_schema")
 
-            # Use StructuredTool to handle the dynamic Pydantic models cleanly
             if args_schema:
                 tool = StructuredTool.from_function(
                     func=executable_func,
@@ -238,11 +227,8 @@ class AIONS:
 
         return langchain_tools
 
-    # ====== ENFORCING THE 1-PROMPT RULE ======
     @classmethod
     def get_system_prompt(cls, source_path: str) -> Optional[str]:
-        """Extracts the singular global system_prompt from an .aion file or directory.
-           Strictly enforces a maximum of ONE system prompt."""
 
         def extract_prompt(content: str) -> Optional[str]:
             # Find all instances
@@ -263,7 +249,6 @@ class AIONS:
 
             return None
 
-        # Directory logic
         if os.path.isdir(source_path):
             all_prompts = []
             for filename in os.listdir(source_path):
