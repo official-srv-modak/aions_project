@@ -1,21 +1,25 @@
-import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+import json
+from typing import Dict, Any, List, Optional
+
 try:
-    from pydantic import create_model, Field, BaseModel
+    from pydantic import create_model, BaseModel, Field
 except ImportError:
     BaseModel = None
 
-class AIONParseError(Exception):
-    """Raised when the syntax of the .aion file is invalid."""
-    pass
 
 class AIONPropertyError(Exception):
-    """Raised when an unidentified property is found in the .aion file."""
     pass
 
+
+class AIONParseError(Exception):
+    pass
+
+
 class AIONS:
+    APPROVED_REGISTRY = {"name", "function", "description", "args_schema", "link"}
+
     @staticmethod
     def _read_source(source_path: str) -> str:
         if os.path.isdir(source_path):
@@ -46,9 +50,43 @@ class AIONS:
         return None
 
     @staticmethod
-    def get_system_prompt(source_path: str) -> Optional[str]:
+    def _extract_global_list(raw_text: str, key: str) -> List[str]:
+        list_pattern = rf"\b{key}\s*-->\s*\[(.*?)\](?=\s*(?:,|}}|\Z))"
+        match = re.search(list_pattern, raw_text, re.DOTALL)
+        if not match:
+            return []
+
+        inner_text = match.group(1)
+        items = []
+        for m in re.finditer(r'\"\"\"(.*?)\"\"\"|\"(.*?)\"', inner_text, re.DOTALL):
+            val = m.group(1) if m.group(1) is not None else m.group(2)
+            items.append(val.strip())
+
+        return items
+
+    @staticmethod
+    def get_rules(source_path: str) -> List[str]:
         raw_text = AIONS._read_source(source_path)
-        return AIONS._extract_global_property(raw_text, "system_prompt")
+        return AIONS._extract_global_list(raw_text, "rules")
+
+    @staticmethod
+    def get_system_prompt(source_path: str, include_rules: bool = True) -> Optional[str]:
+        raw_text = AIONS._read_source(source_path)
+        base_prompt = AIONS._extract_global_property(raw_text, "system_prompt")
+
+        if not include_rules:
+            return base_prompt
+
+        rules = AIONS._extract_global_list(raw_text, "rules")
+
+        if rules:
+            formatted_rules = "\n\nImportant rules:\n" + "\n".join(f"- {rule}" for rule in rules)
+            if base_prompt:
+                return base_prompt.strip() + formatted_rules
+            else:
+                return formatted_rules.strip()
+
+        return base_prompt
 
     @staticmethod
     def get_wrapped_query(source_path: str, user_query: str, payload: Optional[Any] = None) -> str:
@@ -165,12 +203,18 @@ class AIONS:
         end_idx = aion_text.rfind(']')
         inner_text = aion_text[start_idx + 1:end_idx].strip()
 
+        # SAFE STRIP: We must remove the global blocks so the parser doesn't get confused by curly braces inside them.
+        safe_text = re.sub(r'\b(system_prompt|wrapped_query)\s*-->\s*\"\"\"(.*?)\"\"\"', '', inner_text,
+                           flags=re.DOTALL)
+        safe_text = re.sub(r'\b(system_prompt|wrapped_query)\s*-->\s*\"(.*?)\"', '', safe_text, flags=re.DOTALL)
+        safe_text = re.sub(r'\brules\s*-->\s*\[(.*?)\]', '', safe_text, flags=re.DOTALL)
+
         blocks = []
         current_block = ""
         brace_level = 0
         in_block = False
 
-        for char in inner_text:
+        for char in safe_text:
             if char == '{':
                 if brace_level == 0:
                     in_block = True
@@ -282,16 +326,24 @@ class AIONS:
 
     @classmethod
     def dumps(cls, tools: List[Dict[str, Any]], system_prompt: Optional[str] = None,
-              wrapped_query: Optional[str] = None) -> str:
+              wrapped_query: Optional[str] = None, rules: Optional[List[str]] = None) -> str:
         aion_strings = []
 
         if system_prompt:
-            sp_str = f'  system_prompt --> """\n{system_prompt}\n  """'
+            sp_str = f'  system_prompt --> \"\"\"\n{system_prompt}\n  \"\"\"'
             aion_strings.append(sp_str)
 
         if wrapped_query:
-            wq_str = f'  wrapped_query --> """\n{wrapped_query}\n  """'
+            wq_str = f'  wrapped_query --> \"\"\"\n{wrapped_query}\n  \"\"\"'
             aion_strings.append(wq_str)
+
+        if rules:
+            r_str = '  rules --> [\n'
+            for rule in rules:
+                clean_rule = str(rule).replace('"', '\\"')
+                r_str += f'    "{clean_rule}",\n'
+            r_str = r_str.rstrip(",\n") + '\n  ]'
+            aion_strings.append(r_str)
 
         for tool in tools:
             aion_str = "  {\n"
@@ -326,9 +378,9 @@ class AIONS:
 
     @classmethod
     def dump(cls, tools: List[Dict[str, Any]], filepath: str, system_prompt: Optional[str] = None,
-             wrapped_query: Optional[str] = None):
+             wrapped_query: Optional[str] = None, rules: Optional[List[str]] = None):
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(cls.dumps(tools, system_prompt=system_prompt, wrapped_query=wrapped_query))
+            f.write(cls.dumps(tools, system_prompt=system_prompt, wrapped_query=wrapped_query, rules=rules))
 
     @classmethod
     def get_langchain_tools(cls, source_path: str, context: Dict[str, Any]) -> list:

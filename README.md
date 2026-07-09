@@ -158,6 +158,7 @@ The `AIONS` class exposes several static methods to accommodate various system a
 *   `AIONS.dumps(tools_list)`: Serializes an existing list of Python tool dictionaries back into the standard AIONS text format.
 *   `AIONS.get_system_prompt(source_path)`: Scans a file or directory for the singular system_prompt declaration and returns it as a string.
 *   `AIONS.get_wrapped_query(source_path)`: Scans a file or directory for the singular wrapped_query declaration and returns it as a string mainly used for response from agent customizations.
+*   `AIONS.get_rules(source_path)`: Scans a file or directory for the rules that is added to the system prompt and added as an instruction to the model.
 ---
 
 **Developed by Sourav Modak**
